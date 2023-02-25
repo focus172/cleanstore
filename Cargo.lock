@@ -4,9 +4,10 @@ version = 3
 
 [[package]]
 name = "cleanstore"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "color-print",
+ "no-panic",
  "yaml-rust",
 ]
 
@@ -48,6 +49,17 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
+
+[[package]]
+name = "no-panic"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f3ff7cb37ce690ee3b1bab16e77f6eae6320d91a9770ec1497f58a88c1f35c9"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "nom"
