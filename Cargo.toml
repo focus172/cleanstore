@@ -1,11 +1,9 @@
 [package]
 name = "cleanstore"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-color-print = "0.3.3"
-yaml-rust = "0.4.5"
-no-panic = "0.1"
+color-print = "^0.3.0"
