@@ -1,154 +1,113 @@
-extern crate color_print;
+use std::{fmt, fs, path::PathBuf};
 
-use color_print::cprintln;
-use std::path::{Path, PathBuf};
-
-struct DiskSpace {
-    unit: DataType,
-    amount: f32,
-}
+#[derive(Debug, Default)]
+struct DiskSpace(u64);
 
 impl DiskSpace {
+    /// Contrust a new container that counts no data.
     pub fn new() -> DiskSpace {
-        DiskSpace {
-            unit: DataType::B,
-            amount: 0.0,
+        DiskSpace::default()
+    }
+
+    /// Adds the amount of data to the thing
+    pub fn add(&mut self, data: u64) {
+        self.0 += data;
+    }
+}
+
+impl fmt::Display for DiskSpace {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut v = self.0 as f64;
+        let mut u = 0_u8;
+
+        while v > 1024.0 {
+            v /= 1024.0;
+            u += 1;
         }
-    }
 
-    pub fn add(&mut self, amount: u64, unit: DataType) {
-        // taking only this causes overflow at 2GB
-
-        // this approach is not ideal, but it works to hopefully minimize the amount of overflow
-
-        let altered_ammount = match unit {
-            DataType::B => amount,
-            DataType::KB => amount * 1000,
-            DataType::MB => amount * 1000 * 1000,
-            DataType::GB => amount * 1000 * 1000 * 1000,
-            DataType::TB => amount * 1000 * 1000 * 1000 * 1000,
-        };
-
-        self.amount += match self.unit {
-            DataType::B => f64::from(altered_ammount as u32),
-            DataType::KB => f64::from(altered_ammount as u32) / (1000.0),
-            DataType::MB => f64::from(altered_ammount as u32) / (1000.0 * 1000.0),
-            DataType::GB => f64::from(altered_ammount as u32) / (1000.0 * 1000.0 * 1000.0),
-            DataType::TB => f64::from(altered_ammount as u32) / (1000.0 * 1000.0 * 1000.0 * 1000.0),
-        } as f32;
-        self.normalize();
-    }
-
-    fn to_string(&self) -> String {
-        match self.unit {
-            DataType::B => format!("{} B", self.amount),
-            DataType::KB => format!("{} KB", self.amount),
-            DataType::MB => format!("{} MB", self.amount),
-            DataType::GB => format!("{} GB", self.amount),
-            DataType::TB => format!("{} TB", self.amount),
-        }
-    }
-
-    fn normalize(&mut self) {
-        if self.amount > 1000.0 {
-            self.amount /= 1000.0;
-            self.unit = match self.unit {
-                DataType::B => DataType::KB,
-                DataType::KB => DataType::MB,
-                DataType::MB => DataType::GB,
-                DataType::GB => DataType::TB,
-                DataType::TB => panic!("cleanstore: overflowed disk space"),
-            };
+        match u {
+            0 => write!(f, "{v:.0}B"),
+            1 => write!(f, "{v:.3}KB"),
+            2 => write!(f, "{v:.3}MB"),
+            3 => write!(f, "{v:.3}GB"),
+            4 => write!(f, "{v:.3}TB"),
+            _ => panic!("How big is your drive?"),
         }
     }
 }
 
-enum DataType {
-    B,
-    KB,
-    MB,
-    GB,
-    TB,
+const MAX_DEPTH: usize = 10;
+
+#[derive(Debug)]
+pub struct SearchItem {
+    path: PathBuf,
+    depth: usize,
 }
 
 fn main() {
+    let mut log = paris::Logger::new();
+
     // ------------------------------------------------------------------------------------------------------------
 
     let args = std::env::args();
+    let path = args
+        .skip(1)
+        .next()
+        .and_then(|s| fs::canonicalize(s).ok())
+        .unwrap_or(PathBuf::from(std::env::var("HOME").unwrap()));
 
-    let mut amount_removed: DiskSpace = DiskSpace::new();
+    log.info(format!("Starting from root dir: {}", path.display()));
 
-    let arg: Option<String> = args.skip(1).next();
-    let dir_name = match arg {
-        Some(dir) => {
-            if dir.starts_with("/") {
-                dir
-            } else if dir.starts_with("~") {
-                let home_dir = std::env::var("HOME").unwrap();
-                let mut home: PathBuf = PathBuf::from(home_dir);
-                home.push(dir.chars().skip(2).collect::<String>());
-                home.as_path().to_str().unwrap().to_string()
-            } else {
-                let mut cur_dir = PathBuf::from(std::env::current_dir().unwrap());
-                cur_dir.push(dir);
-                cur_dir.as_path().to_str().unwrap().to_string()
-            }
-        }
-        None => std::env::var("HOME").unwrap(),
-    };
-
-    let root_directory = Path::new(&dir_name);
+    let root = SearchItem { path, depth: 0 };
 
     // ------------------------------------------------------------------------------------------------------------
 
-    cprintln!("<green, bold>[+]</green, bold> <yellow>Removing .DS_Store files...</yellow>");
+    log.info("<green><bold>[+]</> <yellow>Removing .DS_Store files...</>");
+
+    let mut removed: DiskSpace = DiskSpace::new();
+    let mut q = vec![root];
 
     // iterate through all the files in the home directory of the user and remove the files that are named exactly '.DS_Store'
     // when each of the files are removed there size should be added to the amount_removed variable
     // the amount_removed variable should be converted to the largest unit possible
-    find_files_rec(root_directory, &mut amount_removed);
+    while let Some(dir) = q.pop() {
+        let r = match std::fs::read_dir(dir.path) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
 
-    // ------------------------------------------------------------------------------------------------------------
+        for item in r {
+            let item = item.unwrap();
+            let path = item.path();
+            let name = path.file_name().unwrap().to_str().unwrap();
 
-    cprintln!(
-        "<green>[+]</green> <yellow>Liberated a total of {} bytes!</yellow>",
-        amount_removed.to_string()
-    );
-}
+            if dir.depth < MAX_DEPTH && path.is_dir()
+            // I dont know if this should be included or not
+            // && !name.starts_with('.')
+            {
+                // log.success(format!("checking dir: {}", path.display()));
+                q.push(SearchItem {
+                    path,
+                    depth: dir.depth + 1,
+                });
+            } else if name == ".DS_Store" {
+                // get the size of the file and add it to the amount_removed variable
 
-fn find_files_rec(current_directory: &Path, amount_removed: &mut DiskSpace) {
-    let cur_dir = std::fs::read_dir(current_directory);
+                let size = path.metadata().unwrap().len();
+                removed.add(size);
 
-    let dir = match cur_dir {
-        Ok(d) => d,
-        Err(_) => return,
-    };
+                log.log(format!(
+                    "<red>(-)</> Removing file: {} <yellow>({} bytes)</>",
+                    path.display(),
+                    size
+                ));
 
-    for directory_item in dir {
-        let item = directory_item.unwrap();
-        let path_to_item = item.path();
-
-        if path_to_item.is_dir() {
-            find_files_rec(&path_to_item, amount_removed);
-        } else {
-            if path_to_item.file_name().unwrap() == ".DS_Store" {
-                remove_file(&path_to_item, amount_removed);
+                std::fs::remove_file(path).unwrap();
             }
         }
     }
-}
 
-fn remove_file(file_to_remove: &Path, amount_removed: &mut DiskSpace) {
-    // get the size of the file and add it to the amount_removed variable
+    // ------------------------------------------------------------------------------------------------------------
 
-    let file_size = file_to_remove.metadata().unwrap().len();
-    amount_removed.add(file_size, DataType::B);
-
-    cprintln!(
-        "<blue>(-)</blue> Removing file: {} <yellow>({} bytes)</yellow>",
-        file_to_remove.display(),
-        file_size
-    );
-
-    std::fs::remove_file(file_to_remove).unwrap();
+    log.success(format!("Liberated a total of {} bytes!</>", removed));
 }
